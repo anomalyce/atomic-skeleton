@@ -1,0 +1,36 @@
+# Set which environment Atomic should be interacting with.
+env: production
+
+# Set the application path relative to this Atomic configuration file.
+app: ./app
+
+# Set the webserver's public directory relative to the application path.
+public_html: ./public
+
+# Set the hostname you would like to use for your application. It
+# defaults to the name of the directory which holds this file.
+#hostname: atomic
+
+# Customise what port number the webserver should use. Defaults to 443.
+#port: 443
+
+# Set the TLD you would like to use along with your hostname.
+#domain_tld: .local
+
+# Set any environment variables you would like to make available to Atomic
+# at runtime. These can then be used within your docker-compose.yml file and
+# respective Docker services by passing them through the "environment" option.
+# You may also reference global or Atomic-generated environment variables within
+# your defined environment variables below.
+#
+# - ${ATOMIC_PATH} contains the absolute path to the Atomic binary on the host machine.
+# - ${ATOMIC_DOCKER_PROJECT} contains the project name (e.g. project-name).
+# - ${ATOMIC_HOSTNAME} contains the project domain (e.g. ${ATOMIC_DOCKER_PROJECT}.local).
+# - ${ATOMIC_PORT} contains the preferred port for the webserver. Defaults to 443.
+# - ${ATOMIC_APP_PATH} contains the absolute path to the application on the host machine.
+# - ${ATOMIC_PUBLIC_PATH} contains the relative path to the public webserver directory (e.g. ./public).
+variables:
+  MYSQL_ROOT_PASSWORD: "root"
+  EXPOSE_SUBDOMAIN: "atomic"
+  EXPOSE_DOMAIN: "expose.domain.tld"
+  EXPOSE_TOKEN: ""

@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+
+shopt -s nocasematch
+SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+
+clr_reset="\e[0m"
+clr_white="\e[1;37m"
+clr_blue="\e[36m"
+clr_green="\e[32m"
+clr_yellow="\e[1;33m"
+clr_red="\e[31m"
+
+declare -A atomic_exitcodes=(
+  [RUN_AS_SUDO]="1:Atomic should not be run using sudo."
+  [MISSING_ATOMIC_CONFIG]="2:Could not locate the atomic.yml configuration file."
+  [DOCKER_NOT_RUNNING]="3:The Docker services are not running, you should start them first."
+  [DOCKER_RUNNING]="4:The Docker services are already running."
+  [MISSING_COMPOSE_CONFIG]="5:Could not locate the docker-compose.yml file within your environment directory."
+)
+
+function atomic_output () {
+  echo -e "${@}" | xargs
+}
+
+function atomic_log () {
+  atomic_output "${clr_white}${@}${clr_reset}"
+}
+
+function atomic_info () {
+  atomic_output "${clr_blue}${@}${clr_reset}"
+}
+
+function atomic_success () {
+  atomic_output "${clr_green}${@}${clr_reset}"
+}
+
+function atomic_warning () {
+  atomic_output "${clr_yellow}${@}${clr_reset}"
+}
+
+function atomic_error () {
+  local exitcode="${1}"
+
+  if [[ -z "${atomic_exitcodes[${exitcode}]}" ]]; then
+    atomic_output "${clr_red}UNKNOWN ERROR OCCURRED! ${exitcode}${clr_reset}"
+    exit 255
+  fi
+
+  readarray -d : -t error <<< "${atomic_exitcodes[${exitcode}]}"
+
+  exitcode=$(echo "${error[0]}" | xargs)
+  local message=$(echo "${error[1]}" | xargs)
+
+  atomic_output "${clr_red}ERROR OCCURRED! ${message}${clr_reset}"
+  exit ${exitcode}
+}
+
+function parse_yaml () {
+  # https://stackoverflow.com/a/21189044
+  local prefix=$2
+  local s='[[:space:]]*' w='[a-zA-Z0-9_]*' fs=$(echo @|tr @ '\034')
+
+  sed -ne "s|^\($s\):|\1|" \
+    -e "s|^\($s\)\($w\)$s:$s[\"']\(.*\)[\"']$s\$|\1$fs\2$fs\3|p" \
+    -e "s|^\($s\)\($w\)$s:$s\(.*\)$s\$|\1$fs\2$fs\3|p" $1 |
+  awk -F$fs '{
+    indent = length($1)/2;
+    vname[indent] = $2;
+    for (i in vname) {if (i > indent) {delete vname[i]}}
+    if (length($3) > 0) {
+      vn=""; for (i=0; i<indent; i++) {vn=(vn)(vname[i])("_")}
+      printf("%s%s%s=\"%s\"\n", "'$prefix'",vn, $2, $3);
+    }
+  }' 
+}
+
+function parse_atomic_config () {
+  local namespace="atomic_config_"
+
+  # Parse the yaml file
+  if [[ -f "${SCRIPTPATH}/atomic.yml" ]]; then
+    local config=$(parse_yaml "${SCRIPTPATH}/atomic.yml" "${namespace}")
+    echo "${config}"
+  elif [[ -f "${SCRIPTPATH}/atomic.yaml" ]]; then
+    local config=$(parse_yaml "${SCRIPTPATH}/atomic.yaml" "${namespace}")
+    echo "${config}"
+  else
+    atomic_error MISSING_ATOMIC_CONFIG
+  fi
+
+  echo "${config}"
+}
+
+function parse_atomic_config_variables () {
+  local namespace="atomic_config_"
+
+  local config_variables=( ${1} )
+  for config_variable in ${config_variables[@]}
+  do
+    readarray -d "=" -t variable <<< "${config_variable}"
+
+    if [[ "${variable[0]}" = "${namespace}variables_"* ]]; then
+      local name=$(echo "${variable[0]}" | sed "s/${namespace}variables_//")
+      
+      eval "export ${name}=${variable[1]}"
+    fi
+  done
+}
+
+function project_name () {
+  if [[ -n "${atomic_config_hostname}" ]]; then
+    echo "${atomic_config_hostname}"
+  else
+    echo "${SCRIPTPATH##*/}"
+  fi
+}
+
+function project_name_env () {
+  local project=$(project_name)
+
+  project="${project//./}"
+
+  echo "${project}-${atomic_config_env}"
+}
+
+function project_tld () {
+  local override=$(echo "${1}" | sed 's/^\.//')
+
+  if [[ -n "${override}" ]]; then
+    echo ".${override}"
+  else
+    echo ".local"
+  fi
+}
+
+function project_app_path () {
+  local directory="${atomic_config_app}"
+
+  if [[ "${directory}" = /* ]]; then
+    echo "${directory}"
+  else
+    echo "${SCRIPTPATH}/${directory}"
+  fi
+}
+
+function project_docker_is_running () {
+  local project=$(project_name_env)
+  atomic_docker_running="$(docker ps -f name=${project} -q)"
+
+  if [[ -z "${atomic_docker_running}" ]]; then
+    atomic_error DOCKER_NOT_RUNNING
+  fi
+}
+
+function boot_environment () {
+  atomic_env_path="${SCRIPTPATH}/env/${atomic_config_env}"
+  atomic_service_commands=$(find "${atomic_env_path}" -maxdepth 2 -type f -name "services.atomic")
+  atomic_composer_file="${atomic_env_path}/docker-compose.yml"
+
+  if [[ ! -f "${atomic_composer_file}" ]]; then
+    atomic_error MISSING_COMPOSE_CONFIG
+  fi
+}
+
+function atomic_add_host () {
+  local project="${1}"
+  local tld="$(project_tld "${atomic_config_domain_tld}")"
+  local domain="${project}${tld}"
+  local ip="127.0.0.1"
+
+  if ! command -v hostess &> /dev/null; then
+    atomic_warning "Hostess not installed - please add <${clr_white}${ip} ${domain}${clr_yellow}> manually to your /etc/hosts file."
+  else
+    sudo /usr/bin/hostess add "${domain}" "${ip}"
+  fi
+}
+
+function atomic_remove_host () {
+  local project="${1}"
+  local tld="$(project_tld "${atomic_config_domain_tld}")"
+  local domain="${project}${tld}"
+  local ip="127.0.0.1"
+
+  if ! command -v hostess &> /dev/null; then
+    atomic_warning "Hostess not installed - please remove <${clr_white}${ip} ${domain}${clr_yellow}> manually from your /etc/hosts file."
+  else
+    sudo /usr/bin/hostess rm "${domain}"
+  fi
+}
+
+function atomic_docker () {
+  local project=$(project_name_env)
+  local command="
+    docker compose \
+    -p "${project}" \
+    -f "${atomic_composer_file}" \
+    "${@}"
+  "
+
+  atomic_info "${command}"
+  eval "${command}" || exit 1
+}
+
+# -----------------------------------------------------------------------------
+
+if [[ -n "${SUDO_USER}" ]]; then
+  atomic_error RUN_AS_SUDO
+fi
+
+# Parse the atomic configuration file.
+atomic_config=$(parse_atomic_config)
+eval "${atomic_config}"
+
+# Make certain variables accessible to the Docker services.
+atomic_project=$(project_name)
+atomic_tld=$(project_tld "${atomic_config_domain_tld}")
+
+export ATOMIC_UID="$(id -u)"
+export ATOMIC_GID="$(id -g)"
+export ATOMIC_PATH="${SCRIPTPATH}"
+export ATOMIC_DOCKER_PROJECT="${atomic_project}"
+export ATOMIC_HOSTNAME="${atomic_project}${atomic_tld}"
+export ATOMIC_PORT="${atomic_config_port:-443}"
+export ATOMIC_APP_PATH="$(project_app_path)"
+export ATOMIC_PUBLIC_PATH="${atomic_config_public_html}"
+
+parse_atomic_config_variables "${atomic_config}"
+
+# Make sure the user defined environment is functional.
+boot_environment
+
+atomic_action="${1}"
+atomic_action_args="${@:2}"
+
+# Allow the user to boot up the Docker services.
+if [[ "${atomic_action}" == "up" ]]; then
+  if [[ -n "${atomic_docker_running}" ]]; then
+    atomic_error DOCKER_RUNNING
+  fi
+
+  atomic_add_host "${atomic_project}"
+  atomic_docker up "${atomic_action_args}"
+  exit 0
+fi
+
+# Allow the user to build/rebuild the Docker services.
+if [[ "${atomic_action}" == "build" ]]; then
+  if [[ -n "${atomic_docker_running}" ]]; then
+    atomic_error DOCKER_RUNNING
+  fi
+
+  atomic_docker build "${atomic_action_args}"
+  exit 0
+fi
+
+# Make sure the Docker services are running at this point, otherwise exit out.
+project_docker_is_running
+
+# Allow the user to shutdown the Docker services.
+if [[ "${atomic_action}" == "down" ]]; then
+  atomic_docker down "${atomic_action_args}"
+  atomic_remove_host "${atomic_project}"
+  exit 0
+fi
+
+# Register any service specific commands.
+for atomic_service_command in ${atomic_service_commands[@]}; do
+  source "${atomic_service_command}"
+done
+
+atomic_docker "${@}"
+exit 0

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+function caddy_service () {
+  atomic_docker exec -w "${ATOMIC_WORKDIR:-/etc/caddy}" caddy "${@}"
+}
+
+function php_service () {
+  atomic_docker exec -w "${ATOMIC_WORKDIR:-/srv}" php "${@}"
+}
+
+function node_service () {
+  atomic_docker run --rm -w "${ATOMIC_WORKDIR:-/srv}" node "${@}"
+}
+
+function certificates () {
+  mkcert -install
+
+  mkcert \
+    -cert-file "${ATOMIC_PATH}/env/local/caddy/certs/${ATOMIC_HOSTNAME}.pem" \
+    -key-file "${ATOMIC_PATH}/env/local/caddy/certs/${ATOMIC_HOSTNAME}-key.pem" \
+    "${ATOMIC_HOSTNAME}"
+
+  if [[ ! -z "${EXPOSE_DOMAIN}" ]]; then
+    mkcert \
+      -cert-file "${ATOMIC_PATH}/env/local/caddy/certs/expose.pem" \
+      -key-file "${ATOMIC_PATH}/env/local/caddy/certs/expose-key.pem" \
+      "*.${EXPOSE_DOMAIN}"
+  fi
+}
+
+
+
+args="${atomic_action_args}"
+case "${atomic_action}" in
+     "caddyreload" )  caddy_service caddy reload                          && exit 0 ;;
+      "caddyshell" )  caddy_service /bin/sh                               && exit 0 ;;
+
+             "php" )  php_service php "${args}"                           && exit 0 ;;
+           "shell" )  php_service /bin/bash                               && exit 0 ;;
+            "bash" )  php_service /bin/bash                               && exit 0 ;;
+        "phpshell" )  php_service /bin/bash                               && exit 0 ;;
+
+        "composer" )  php_service /usr/local/bin/composer "${args}"       && exit 0 ;;
+
+         "artisan" )  php_service php artisan "${args}"                   && exit 0 ;;
+             "art" )  php_service php artisan "${args}"                   && exit 0 ;;
+
+            "node" )  node_service node "${args}"                         && exit 0 ;;
+             "npm" )  node_service npm "${args}"                          && exit 0 ;;
+            "yarn" )  node_service yarn "${args}"                         && exit 0 ;;
+             "npx" )  node_service npx "${args}"                          && exit 0 ;;
+       "nodeshell" )  node_service /bin/bash                              && exit 0 ;;
+
+         "phpunit" )  php_service vendor/bin/phpunit "${args}"            && exit 0 ;;
+            "test" )  php_service vendor/bin/phpunit "${args}"            && exit 0 ;;
+
+         "adminer" )  xdg-open "http://${ATOMIC_HOSTNAME}:8080"           && exit 0 ;;
+      "phpmyadmin" )  xdg-open "http://${ATOMIC_HOSTNAME}:8080"           && exit 0 ;;
+
+             "ssl" )  certificates                                        && exit 0 ;;
+             "tls" )  certificates                                        && exit 0 ;;
+            "cert" )  certificates                                        && exit 0 ;;
+           "certs" )  certificates                                        && exit 0 ;;
+     "certificate" )  certificates                                        && exit 0 ;;
+    "certificates" )  certificates                                        && exit 0 ;;
+          "mkcert" )  certificates                                        && exit 0 ;;
+esac

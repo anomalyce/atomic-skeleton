@@ -1,0 +1,149 @@
+version: '3'
+
+x-extra_hosts:
+  &custom-hosts
+  - "localhost:127.0.0.1"
+  # - "${ATOMIC_HOSTNAME}:172.28.1.1"
+
+services:
+  # https://hub.docker.com/_/caddy
+  caddy:
+    restart: unless-stopped
+    image: caddy:2
+    networks:
+      - atomic
+    extra_hosts: *custom-hosts
+    ports:
+      - 80
+      - ${ATOMIC_PORT}:443
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy/certs:/root/certs
+      - "${ATOMIC_APP_PATH}:/srv"
+      - "${ATOMIC_PATH}/../framework:/opt/framework"
+      - "${ATOMIC_PATH}/../theme:/opt/theme"
+      - "${ATOMIC_PATH}/../atomic:/opt/atomic"
+    environment:
+      ATOMIC_HOSTNAME: "${ATOMIC_HOSTNAME}"
+      ATOMIC_PORT: "${ATOMIC_PORT}"
+      ATOMIC_PUBLIC_PATH: "${ATOMIC_PUBLIC_PATH}"
+    depends_on:
+      - php
+
+  # https://hub.docker.com/_/php
+  php:
+    restart: unless-stopped
+    build:
+      context: ./php
+      dockerfile: Dockerfile
+      args:
+        ATOMIC_UID: "${ATOMIC_UID}"
+        ATOMIC_GID: "${ATOMIC_GID}"
+    networks:
+      - atomic
+    extra_hosts: *custom-hosts
+    user: "${ATOMIC_UID}:${ATOMIC_GID}"
+    volumes:
+      - ./php/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
+      - ./composer/config.json:/home/atomic/.composer/config.json
+      - ./expose/config.php:/home/atomic/.expose/config.php
+      - "${ATOMIC_APP_PATH}:/srv"
+      - "${ATOMIC_PATH}/../framework:/opt/framework"
+      - "${ATOMIC_PATH}/../theme:/opt/theme"
+      - "${ATOMIC_PATH}/../atomic:/opt/atomic"
+    depends_on:
+      - mariadb
+      - redis
+  
+  # https://hub.docker.com/_/mariadb
+  mariadb:
+    restart: unless-stopped
+    image: mariadb:10
+    networks:
+      - atomic
+    extra_hosts: *custom-hosts
+    ports:
+      - 3306
+    volumes:
+      - ./mariadb/data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "root"
+      MYSQL_DATABASE: "app"
+      MYSQL_ROOT_HOST: "%"
+  
+  # https://hub.docker.com/_/redis
+  redis:
+    restart: unless-stopped
+    image: redis:6
+    networks:
+      - atomic
+    extra_hosts: *custom-hosts
+    ports:
+      - 6379
+    volumes:
+      - redis_data:/data
+  
+  # https://hub.docker.com/_/node
+  # user: "node"
+  node:
+    build:
+      context: ./node
+      dockerfile: Dockerfile
+    user: "${ATOMIC_UID}:${ATOMIC_GID}"
+    working_dir: "/srv"
+    networks:
+      - atomic
+    ports:
+      - 8081
+    volumes:
+      - /run/user/1000/bus:/run/user/1000/bus
+      - "${ATOMIC_APP_PATH}:/srv"
+      - "${ATOMIC_PATH}/../framework:/opt/framework"
+      - "${ATOMIC_PATH}/../theme:/opt/theme"
+      - "${ATOMIC_PATH}/../atomic:/opt/atomic"
+    environment:
+      DBUS_SESSION_BUS_ADDRESS: "${DBUS_SESSION_BUS_ADDRESS}"
+
+  # https://hub.docker.com/r/mailhog/mailhog
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    networks:
+      - atomic
+    ports:
+      - 1025:1025
+      - 8025:8025
+
+  # https://hub.docker.com/_/adminer
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    networks:
+      - atomic
+    ports:
+      - 8080:8080
+    environment:
+      ADMINER_DEFAULT_SERVER: mariadb
+    volumes:
+      - ./adminer/theme.css:/var/www/html/adminer.css
+    extra_hosts: *custom-hosts
+    depends_on:
+      - mariadb
+
+
+
+volumes:
+  caddy_data:
+  caddy_config:
+  redis_data:
+
+
+
+networks:
+  atomic:
+    ipam:
+      driver: default
+      #config:
+      #  - subnet: 172.30.0.0/16

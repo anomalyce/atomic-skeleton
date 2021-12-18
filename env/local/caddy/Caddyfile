@@ -1,0 +1,26 @@
+{
+  debug
+  servers {
+    protocol {
+      experimental_http3
+    }
+  }
+}
+
+{$ATOMIC_HOSTNAME}:80 {
+  root * /srv/{$ATOMIC_PUBLIC_PATH}
+
+  encode gzip
+  php_fastcgi php:9000
+  file_server
+}
+
+{$ATOMIC_HOSTNAME}:443 {
+  root * /srv/{$ATOMIC_PUBLIC_PATH}
+
+  encode gzip
+  php_fastcgi php:9000
+  file_server
+  
+  tls /root/certs/{$ATOMIC_HOSTNAME}.pem /root/certs/{$ATOMIC_HOSTNAME}-key.pem
+}

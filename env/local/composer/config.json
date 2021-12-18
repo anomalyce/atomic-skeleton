@@ -1,0 +1,34 @@
+{
+  "repositories": [
+    {
+      "type": "path",
+      "url": "/opt/atomic",
+      "options": {
+        "symlink": true,
+        "versions": {
+          "anomalyce/atomic": "dev-main"
+        }
+      }
+    },
+    {
+      "type": "path",
+      "url": "/opt/framework",
+      "options": {
+        "symlink": true,
+        "versions": {
+          "anomalyce/atomic-framework": "dev-main"
+        }
+      }
+    },
+    {
+      "type": "path",
+      "url": "/opt/theme",
+      "options": {
+        "symlink": true,
+        "versions": {
+          "anomalyce/atomic-theme": "dev-main"
+        }
+      }
+    }
+  ]
+}
