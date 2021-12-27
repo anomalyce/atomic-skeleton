@@ -6,7 +6,7 @@
     { "name": "Anomalyce" }
   ],
   "require": {
-    "anomalyce/atomic": "dev-main",
+    "anomalyce/atomic": "~1.0",
     "anomalyce/atomic-theme": "dev-main"
   },
   "scripts": {
